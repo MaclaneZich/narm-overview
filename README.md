@@ -171,8 +171,4 @@ The source code and all assets are private and owned by Narm Inc. All rights res
 
 Nárm offers general information about fabrics. It is not medical advice and does not replace a clinician.
 
-## Contact
 
-- Email: TODO_CONTACT_EMAIL
-- Website: [maclanezich.com](https://maclanezich.com)
-- LinkedIn: TODO_LINKEDIN_URL
