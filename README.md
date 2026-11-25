@@ -2,15 +2,19 @@
 
 Scan a garment or its care label, see what it is made of, and learn how that fabric suits your skin, allergies and climate.
 
-[![App Store](https://img.shields.io/badge/App%20Store-Narm-black?logo=apple)](TODO_APP_STORE_URL)
+[![App Store](https://img.shields.io/badge/App%20Store-Narm-black?logo=apple)](https://apps.apple.com/us/app/narm-clothing-fabric-scanner/id6769256623)
 ![Platform](https://img.shields.io/badge/platform-iOS-lightgrey)
 ![Source](https://img.shields.io/badge/source-private-red)
 
-Nárm is listed on the App Store as "Narm: Clothing Fabric Scanner". This repository documents the architecture. The source code is private and is not published here.
-
-## Demo
-
 <img src="media/demo-label-scan.gif" width="300" alt="Scanning a care label and reading the personalized result">
+
+- **What it does.** Point the camera at a care label or a garment. The app names the fabric, flags allergen risks and scores it against your skin conditions, allergies and climate.
+- **What I built.** Technical co-founder and sole engineer: the Flutter client, Firebase backend, Cloud Functions, billing layer and App Store release. The first version was scaffolded in FlutterFlow and then rewritten by hand.
+- **One number.** 98% label-reading accuracy and 94% material-identification accuracy on the internal test set, 200+ downloads, 48 subscriptions during the paid period.
+
+Listed on the App Store as "Narm: Clothing Fabric Scanner". The source code is private; this repository documents the architecture. Deeper detail is in [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Screens
 
 | Onboarding | Profile setup | Allergens |
 |---|---|---|
@@ -19,25 +23,6 @@ Nárm is listed on the App Store as "Narm: Clothing Fabric Scanner". This reposi
 | Scan | Result | Result detail |
 |---|---|---|
 | <img src="media/04-scan-camera.png" width="300" alt="Camera framing a care label"> | <img src="media/05-analysis-result.png" width="300" alt="Fabric score and personalized ratings"> | <img src="media/06-analysis-detail.png" width="300" alt="Best-for ratings and bottom line"> |
-
-## What it does
-
-- Point the camera at a care label. The app reads the fiber composition and names the fabric.
-- No label? Photograph the garment instead and the app estimates the material from the photo.
-- Every result is scored against your profile: skin conditions, allergies, climate and how much sustainability matters to you.
-- The result flags allergen risks, rates the fabric for everyday wear, exercise, loungewear and formal use, and gives a short bottom line and a shopping tip.
-- Scans are saved to a history with favorites and a wardrobe, and the profile can be edited at any time.
-
-## Results
-
-| Measure | Value |
-|---|---|
-| Label reading accuracy | 98% |
-| Material identification accuracy | 94% |
-| Downloads | 200+ |
-| Subscriptions | 48 |
-
-TODO: describe how accuracy was measured (size of the test set, how ground truth was established, and who labeled it). The codebase does not contain the evaluation.
 
 ## Architecture
 
@@ -69,7 +54,7 @@ flowchart LR
   CF -->|"cascade delete"| ST
 ```
 
-### A scan
+A scan, end to end:
 
 ```mermaid
 sequenceDiagram
@@ -77,98 +62,59 @@ sequenceDiagram
   participant A as App
   participant V as Vertex AI
   participant D as Firestore
-  participant S as Storage
   U->>A: Pick Label or Garment mode and take a photo
-  A->>A: Downscale and compress the image on device
-  A->>A: Build the request from the saved profile
-  A->>V: Image plus profile
+  A->>A: Downscale and compress on device
+  A->>V: Image plus saved profile
   V-->>A: Structured result
-  A->>A: Validate the result or show a specific error
-  A->>D: Save the scan to the user's history
-  A-->>U: Show score, composition, allergen flag and personalized ratings
-  opt User opted in to research
-    A->>S: Anonymized image
-    A->>D: Anonymized result
-  end
+  A->>A: Validate, or show a specific error with a retry
+  A->>D: Save to the user's history
+  A-->>U: Score, composition, allergen flag, ratings
 ```
 
-The user picks Label or Garment mode and takes a photo or chooses one from the library. The image is downscaled and compressed on the device before anything leaves the phone. The app combines the image with the saved profile and sends it to a two-stage vision pipeline that reads the label and then identifies materials, running on Gemini through the Firebase Vertex AI client SDK with the user's Firebase identity. The response is validated before it is shown; an unreadable label, a photo with no garment, a timeout or a malformed response each produce a specific message and a retry. The scan is written to the user's own history collection and only then displayed, so the history never disagrees with what the user saw. If the user has opted in, an anonymized copy of the image and result is stored separately with no link back to the account, except a private list on the user's own record so deletion can clean it up.
-
-### A subscription purchase
-
-Subscriptions are implemented but switched off in the current release. The app is free. The flow below is what runs when the paid tier is on.
-
-```mermaid
-sequenceDiagram
-  actor U as User
-  participant A as App
-  participant RC as RevenueCat SDK
-  participant AS as App Store
-  participant W as Cloud Function
-  participant D as Firestore
-  U->>A: Choose a plan on the paywall
-  A->>RC: Purchase the package
-  RC->>AS: StoreKit purchase
-  AS-->>RC: Receipt
-  RC-->>A: Entitlement active
-  A->>A: Unlock features and cache the entitlement
-  RC->>W: Webhook event with a shared secret
-  W->>W: Verify the secret and map the user id
-  W->>D: Write subscription status to the user document
-```
-
-The app binds the RevenueCat customer to the Firebase user id at sign-in, so a purchase follows the account across devices. The client reads its entitlement from the RevenueCat SDK and unlocks the paywalled features immediately. In parallel, RevenueCat calls a Cloud Function with a shared secret; the function verifies the secret with a constant-time comparison and writes the subscription status onto the user's record using the Admin SDK. Security rules reject any client write to those fields, so the server-side copy cannot be tampered with. When a free trial starts, the app schedules local notifications on the device before the trial converts to a charge.
-
-## Tech stack
-
-| Layer | Technology | Why |
-|---|---|---|
-| Client | Flutter, Dart | One codebase, native camera access, fast UI iteration |
-| UI scaffolding | FlutterFlow export | Got a working prototype quickly; the generated pages were then rewritten by hand |
-| Navigation | go_router | Named routes with redirects driven by auth state |
-| State | provider and SharedPreferences | Small app, no need for a heavier framework; profile and scan mode persist across launches |
-| Auth | Firebase Auth with email, Google and Apple | Sign in with Apple is required on iOS; Firebase gives all three with one user model |
-| Database | Cloud Firestore | Per-user documents map cleanly onto security rules; offline cache for history |
-| Files | Cloud Storage | Garment photos and anonymized research images, gated by the same identity |
-| AI | Gemini 2.5 Flash Lite through the Firebase Vertex AI client SDK | Vision plus structured output at low cost per call, authenticated by the Firebase user with no API key in the app |
-| Serverless | Cloud Functions, Node 20 | Only two jobs need a trusted environment: the webhook and account deletion |
-| Payments | RevenueCat and StoreKit | Receipt validation, trial eligibility and cross-device entitlement without running my own server |
-| Camera | camera and image_picker plugins | Live preview with tap to focus and flash, plus photo library import |
-| Distribution | TestFlight and App Store Connect from the command line | Builds and uploads are scripted; no CI service yet |
+The image is compressed on the phone before anything is uploaded, then sent with the saved profile to a two-stage vision pipeline that reads the label and then identifies materials. The response is validated before it is shown, and the scan is persisted before it is displayed, so history never disagrees with what the user saw. The subscription flow and the security model are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Engineering decisions
 
-**Serverless backend instead of an API server.** Firebase Auth, Firestore, Storage and the Vertex AI SDK are called straight from the device. The alternative was a small API in front of everything. The tradeoff is that business rules live in security rules and client code rather than one place, in exchange for no servers to run and nothing to scale by hand.
+- **Serverless backend, no API server.** Nothing to run or scale by hand; in exchange, business rules are split between security rules and client code.
+- **Model called from the client SDK, not a Cloud Function.** No extra hop or cold start, and no API key in the binary; in exchange, pipeline changes need an app release and per-user quotas are harder.
+- **Subscription status written only by a webhook.** The client trusts the RevenueCat SDK for what to unlock, but the server-side record is written by a Cloud Function and rules reject client writes to those fields; the simpler alternative was tamper-prone.
+- **Per-user isolation in the rules.** A user can read and write only their own record and history and can never delete the record itself; research contributions are write-only and keyed by random ids.
+- **Model failures are product states.** Timeouts, malformed responses, "no label found" and "no garment found" each have their own copy and retry; nothing is shown until the scan is saved.
+- **Whole features behind single flags.** The paid tier, guest mode and email verification each sit behind one flag, which is how the app went free in one change.
 
-**Model called from the client SDK, not a Cloud Function.** Firebase AI Logic lets the app call Gemini with the user's Firebase identity and no API key in the binary. A Cloud Function in the middle would have added a hop and cold starts. The tradeoff is that changing the pipeline needs an app release, and server-side controls such as per-user quotas and request logging are harder. Moving the call behind a function is on the list below.
+## Tech stack
 
-**Subscription status mirrored by a webhook, not written by the client.** The app trusts the RevenueCat SDK for what to unlock, but the server-side record of who is subscribed is written only by the webhook with the Admin SDK, and the rules forbid clients from touching those fields. The alternative, letting the client write its own status, would have been simpler and tamper-prone.
+| Layer | Technology |
+|---|---|
+| Client | Flutter, Dart; UI scaffolded in FlutterFlow, then rewritten |
+| Navigation and state | go_router, provider, SharedPreferences |
+| Auth | Firebase Auth with email, Google and Sign in with Apple |
+| Data | Cloud Firestore, Cloud Storage |
+| AI | Gemini 2.5 Flash Lite through the Firebase Vertex AI client SDK |
+| Serverless | Cloud Functions, Node 20 |
+| Payments | RevenueCat and StoreKit, currently switched off |
+| Camera | camera and image_picker plugins |
+| Distribution | TestFlight and App Store Connect, scripted from the command line |
 
-**Per-user isolation in the rules.** A user can read and write only their own record and their own scan history, and can never delete the record itself. Research contributions are write-only from the client and are stored under random ids with no account reference. The reference list of fabrics is read-only for everyone. Rules are evaluated from the document path, so the wardrobe check costs no extra reads.
+## Running it
 
-**Cost per scan is bounded on the device.** Images are downscaled and compressed before upload, each scan is one model call, and the usage counter increments only after a scan is saved, so cancelled or failed scans are not counted. A monthly scan limit and paywall exist behind a feature flag; they were on during the paid period and are off now.
-
-**Model failures are handled as product states, not crashes.** The call has a timeout, the response is checked for the expected structure, and "no label found" and "no garment found" are distinct outcomes with their own copy and a retry that suggests the other scan mode. Results are shown only after the scan is persisted. The whole paid tier, guest mode and email verification are each behind a single flag, which is how the app went free in one change.
+You cannot. The source, Firebase configuration and model prompts are private and owned by Narm Inc. The app itself is free on the [App Store](https://apps.apple.com/us/app/narm-clothing-fabric-scanner/id6769256623).
 
 ## What I would do next
 
 - Cache repeat scans by image hash so the same label is not analyzed twice.
-- Move the model call behind a Cloud Function with a queue, which also enables per-user quotas and keeps the pipeline off the device.
-- Build an evaluation set of labeled care tags and garment photos and run it on every pipeline change to catch accuracy regressions.
-- Add unit and integration tests and a CI pipeline; today there is one smoke test and builds are run by hand.
+- Move the model call behind a Cloud Function with a queue, which also enables per-user quotas.
+- Build an evaluation set of labeled care tags and garment photos and run it on every pipeline change.
+- Add unit and integration tests and CI; today there is one smoke test and builds are run by hand.
 
 ## About the build
 
-I am the technical co-founder and sole engineer. Nárm started as a Harvard Medical School capstone.
+Nárm started as a Harvard Medical School capstone. The first version was built in FlutterFlow (TODO: start date). On June 1, 2026 I exported it to Flutter and rebuilt the onboarding flow, scanner, analysis page, paywall, billing layer, account flows and Cloud Functions by hand, while the FlutterFlow runtime, auth plumbing and data model classes remain as generated. About 38,000 lines of Dart in total, roughly 16,000 written by hand. First TestFlight build June 4, 2026; version 1.0.1 approved for the App Store in July 2026 (TODO: confirm the date); free model since October 2026.
 
-The first version was built in FlutterFlow (TODO: start date). On June 1, 2026 I exported it to Flutter and rebuilt it by hand: the onboarding flow, scanner, analysis page, paywall, billing layer, account flows and Cloud Functions are hand-written, while the FlutterFlow runtime, auth plumbing and data model classes remain as generated. The codebase is about 38,000 lines of Dart; roughly 16,000 of those were written by hand and the rest are generated scaffolding, some of it edited. The first TestFlight build shipped on June 4, 2026, version 1.0.1 was approved for the App Store in July 2026 (TODO: confirm the release date), and the app switched to a free model in October 2026.
+TODO: describe how the accuracy figures were measured (test set size, how ground truth was established, who labeled it).
 
 ## Status and ownership
 
-The source code and all assets are private and owned by Narm Inc. All rights reserved. This repository documents the architecture only; see LICENSE.
-
-## Not medical advice
+The source code and all assets are private and owned by Narm Inc. All rights reserved. This repository documents the architecture only; see [LICENSE](LICENSE).
 
 Nárm offers general information about fabrics. It is not medical advice and does not replace a clinician.
-
-
